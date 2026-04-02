@@ -1,51 +1,51 @@
 import java.util.*;
+import java.io.*;
 
 /**
  * ============================================================
  * APPLICATION - bookmystay
  * ============================================================
  *
- * Use Case 10: Booking Cancellation & Inventory Rollback
+ * Use Case 12: Data Persistence & System Recovery
  *
- * @version 10.0
+ * @version 12.0
  */
 public class bookmystay {
 
     public static void main(String[] args) {
 
-        System.out.println("Booking Cancellation\n");
+        System.out.println("System Recovery\n");
 
-        // Initialize Inventory
+        String filePath = "inventory.txt";
+
         RoomInventory inventory = new RoomInventory();
-        inventory.addRoomType("Single", 5);
+        FilePersistenceService persistence = new FilePersistenceService();
 
-        // Cancellation Service
-        CancellationService service = new CancellationService();
+        // Try loading previous state
+        boolean loaded = persistence.loadInventory(inventory, filePath);
 
-        // Simulate confirmed booking
-        String reservationId = "Single-1";
-        service.registerBooking(reservationId, "Single");
+        if (!loaded) {
+            System.out.println("No valid inventory data found. Starting fresh.\n");
 
-        // Cancel booking
-        service.cancelBooking(reservationId, inventory);
+            // Initialize default inventory
+            inventory.addRoomType("Single", 5);
+            inventory.addRoomType("Double", 3);
+            inventory.addRoomType("Suite", 2);
+        }
 
-        // Show rollback history
-        service.showRollbackHistory();
+        // Display current inventory
+        System.out.println("Current Inventory:");
+        inventory.displayInventory();
 
-        // Show updated inventory
-        System.out.println("\nUpdated Single Room Availability: "
-                + inventory.getAvailableRooms("Single"));
+        // Save current state
+        persistence.saveInventory(inventory, filePath);
+        System.out.println("\nInventory saved successfully.");
     }
 }
 
 /* ============================================================
  * CLASS - RoomInventory
- * ============================================================
- *
- * Manages room availability state
- *
- * @version 10.0
- */
+ * ============================================================ */
 class RoomInventory {
 
     private Map<String, Integer> inventory;
@@ -58,90 +58,77 @@ class RoomInventory {
         inventory.put(type, count);
     }
 
-    // Rollback operation (increment)
-    public void increaseInventory(String type) {
-        inventory.put(type, inventory.getOrDefault(type, 0) + 1);
+    public void setRoomCount(String type, int count) {
+        inventory.put(type, count);
     }
 
-    public int getAvailableRooms(String type) {
-        return inventory.getOrDefault(type, 0);
+    public Map<String, Integer> getInventory() {
+        return inventory;
+    }
+
+    public void displayInventory() {
+        for (String type : inventory.keySet()) {
+            System.out.println(type + ": " + inventory.get(type));
+        }
     }
 }
 
 /* ============================================================
- * CLASS - CancellationService
+ * CLASS - FilePersistenceService
  * ============================================================
  *
- * Handles booking cancellation and rollback logic
+ * Handles saving & loading inventory from file
  *
- * @version 10.0
+ * @version 12.0
  */
-class CancellationService {
+class FilePersistenceService {
 
-    /** Stack to track released room IDs (LIFO rollback) */
-    private Stack<String> releasedRoomIds;
+    // Save inventory to file
+    public void saveInventory(RoomInventory inventory, String filePath) {
 
-    /** Maps reservationId → roomType */
-    private Map<String, String> reservationRoomTypeMap;
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
 
-    public CancellationService() {
-        releasedRoomIds = new Stack<>();
-        reservationRoomTypeMap = new HashMap<>();
+            for (Map.Entry<String, Integer> entry : inventory.getInventory().entrySet()) {
+                writer.write(entry.getKey() + "=" + entry.getValue());
+                writer.newLine();
+            }
+
+        } catch (IOException e) {
+            System.out.println("Error saving inventory.");
+        }
     }
 
-    /**
-     * Registers a confirmed booking
-     */
-    public void registerBooking(String reservationId, String roomType) {
-        reservationRoomTypeMap.put(reservationId, roomType);
-    }
+    // Load inventory from file
+    public boolean loadInventory(RoomInventory inventory, String filePath) {
 
-    /**
-     * Cancels booking and restores inventory
-     */
-    public void cancelBooking(String reservationId, RoomInventory inventory) {
+        File file = new File(filePath);
 
-        // Validation (fail-fast)
-        if (reservationId == null || reservationId.trim().isEmpty()) {
-            System.out.println("Invalid reservation ID.");
-            return;
+        if (!file.exists()) {
+            return false;
         }
 
-        if (!reservationRoomTypeMap.containsKey(reservationId)) {
-            System.out.println("Cancellation failed: Reservation not found.");
-            return;
-        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
 
-        String roomType = reservationRoomTypeMap.get(reservationId);
+            String line;
 
-        // Rollback tracking (LIFO)
-        releasedRoomIds.push(reservationId);
+            while ((line = reader.readLine()) != null) {
 
-        // Restore inventory
-        inventory.increaseInventory(roomType);
+                String[] parts = line.split("=");
 
-        // Remove booking record
-        reservationRoomTypeMap.remove(reservationId);
+                if (parts.length != 2) {
+                    return false; // corrupted format
+                }
 
-        System.out.println("Booking cancelled for ID: "
-                + reservationId + " | Inventory restored for: " + roomType);
-    }
+                String roomType = parts[0];
+                int count = Integer.parseInt(parts[1]);
 
-    /**
-     * Displays rollback history
-     */
-    public void showRollbackHistory() {
+                inventory.setRoomCount(roomType, count);
+            }
 
-        System.out.println("\nRollback History (Most Recent First):");
+            return true;
 
-        if (releasedRoomIds.isEmpty()) {
-            System.out.println("No cancellations recorded.");
-            return;
-        }
-
-        // LIFO order
-        for (int i = releasedRoomIds.size() - 1; i >= 0; i--) {
-            System.out.println("Released Reservation ID: " + releasedRoomIds.get(i));
+        } catch (Exception e) {
+            return false; // corrupted file or parse error
         }
     }
 }
